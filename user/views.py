@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .models import User_Auth,e_wallet,otp_verify,left_pannel
+from .models import User_Auth,e_wallet,otp_verify,left_pannel,Login_User
 from django.http import JsonResponse
 import json
 from django.conf import settings
@@ -43,7 +43,7 @@ def register(request):
         print(getotp[0].otp)
         if(int(data['otp']) == getotp[0].otp): 
             encpass = cryptocode.encrypt(data['password'], settings.HASHKEY)
-            User_Auth.objects.create(username=data['username'],Email=data['email'],password=encpass)
+            User_Auth.objects.create(username=data['username'],Email=data['email'],who = 'user' if(data['person'] == 'user') else 'owner',password=encpass)
             return JsonResponse({'msg':'Registration Successfull'},status=200)
         else:
             return JsonResponse({'msg':'wrong otp'},status=406)
@@ -62,12 +62,77 @@ def Login(request):
                 dt = now.strftime("%d/%m/%Y %H:%M:%S")
                 access = ''.join(random.choices(string.ascii_lowercase + string.digits, k=settings.NUM))
                 upd = User_Auth.objects.get(username=data['username'])
-                upd.auth_token = access
-                upd.last_login_time = dt
-                upd.login_status = True
-                upd.save()
+                Login_User.objects.create(loggeduser = data['username'],auth_token = access,userid = upd.id)
+                # upd.auth_token = access
+                # upd.last_login_time = dt
+                # upd.login_status = True
+                # upd.save()
                 return JsonResponse({'access':access},status=200)
             else:
                 return JsonResponse({'msg':'Wrong Password'},status=406)
     else:
         return JsonResponse({'msg':'Bad Request'},status=400)
+
+def Details(request):
+    if(request.method == 'GET'):
+        ins = list(Login_User.objects.filter(auth_token = request.headers['Authorization']))
+        if (len(ins)!=0):
+            userdata = User_Auth.objects.filter(id=ins[0].userid).values()
+            return JsonResponse(userdata[0],status=200,safe=False)
+        else:
+            return JsonResponse({'msg':'Unauthorized'},status=401)
+    else:
+        return JsonResponse({'msg':'Bad Request'},status=400)
+
+def Left_pannel(request):
+    if(request.method == 'GET'):
+        ins = list(Login_User.objects.filter(auth_token = request.headers['Authorization']))
+        if (len(ins)!=0):
+            d = list(User_Auth.objects.filter(id=ins[0].userid))
+            if(d[0].who == 'user'):
+                pannel = list(left_pannel.objects.filter(for_user = 1).order_by('priority').values())
+            else:
+                pannel = list(left_pannel.objects.filter(for_owner = 1).order_by('priority').values())
+            return JsonResponse(pannel,status=200,safe=False)
+        else:
+            return JsonResponse({'msg':'Unauthorized'},status=401)
+    else:
+        return JsonResponse({'msg':'Bad Request'},status=400)
+
+def Complete_Profile(request):
+    if(request.method == 'POST'):
+        data = json.loads(request.body)
+        ins = list(Login_User.objects.filter(auth_token = request.headers['Authorization']))
+        if (len(ins)!=0):
+            d = list(User_Auth.objects.filter(id=ins[0].userid))
+            if(d[0].who == 'user'):
+                i = User_Auth.objects.get(id=ins[0].userid)
+                i.Phone = data['phone']
+                i.Name = data['name']
+                i.profile_status = True
+                i.save()
+                if(len(list(e_wallet.objects.filter(user=i.id))) == 0):
+                    e_wallet.objects.create(user=i.id)
+                return JsonResponse({'msg':'Profile Completed'},status=200)
+            else:
+                i = User_Auth.objects.get(id=ins[0].userid)
+                i.Phone = data['phone']
+                i.Name = data['name']
+                i.profile_status = True
+                i.gst_num = data['gst']
+                i.save()
+                return JsonResponse({'msg':'Profile Completed'},status=200)
+        else:
+            return JsonResponse({'msg':'Unauthorized'},status=401)
+    else:
+        return JsonResponse({'msg':'Bad Request'},status=400)
+
+def Logout(request):
+    if(request.method == 'GET'):
+        ins = Login_User.objects.get(auth_token = request.headers['Authorization'])
+        ins.delete()
+        return JsonResponse({'msg':'Logout Successfull'},status=200)
+    else:
+        return JsonResponse({'msg':'Bad Request'},status=400)
+
+
